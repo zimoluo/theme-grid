@@ -2,3 +2,4 @@ node_modules/
 .git/
 temp/
 output_*
+.DS_Store
