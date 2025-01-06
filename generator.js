@@ -1,6 +1,7 @@
 const puppeteer = require("puppeteer");
 const fs = require("fs");
 const path = require("path");
+const { optimize } = require("svgo");
 
 (async () => {
   const url = "https://www.zimoluo.me/design";
@@ -9,7 +10,10 @@ const path = require("path");
   const cellGap = 256; // Default gap size
   const padding = cellGap; // Padding equal to gap size
   const borderColor = { r: 180, g: 180, b: 180, alpha: 0.8 }; // Border color for the larger circle
-  const outputFileName = "output_grid_with_border.svg";
+  const isPng = false; // Toggle to render PNG or SVG
+  const outputFileName = isPng
+    ? "output_grid_with_border.png"
+    : "output_grid_with_border.svg";
 
   // Launch Puppeteer
   const browser = await puppeteer.launch();
@@ -139,12 +143,37 @@ const path = require("path");
   // Close the SVG
   svgContent += `</svg>`;
 
-  // Save the output SVG
-  fs.writeFileSync(outputFileName, svgContent);
+  // Optimize SVG with SVGO
+  const optimizedSvg = optimize(svgContent, {
+    plugins: [
+      {
+        name: "preset-default",
+        params: { overrides: { removeViewBox: false } },
+      },
+    ],
+  }).data;
 
-  console.log(
-    `Grid SVG with corrected circular masking saved as ${outputFileName}`
-  );
+  if (!isPng) {
+    // Save the optimized SVG
+    fs.writeFileSync(outputFileName, optimizedSvg);
+    console.log(`Optimized SVG saved as ${outputFileName}`);
+  } else {
+    // Render the SVG as PNG
+    const tempSvgPath = path.join(tempDir, "temp.svg");
+    fs.writeFileSync(tempSvgPath, optimizedSvg);
+
+    const page = await browser.newPage();
+    await page.setContent(
+      `<html><body><img src="file://${tempSvgPath}" /></body></html>`
+    );
+    await page.screenshot({
+      path: outputFileName,
+      type: "png",
+      fullPage: true,
+    });
+
+    console.log(`Rendered PNG saved as ${outputFileName}`);
+  }
 
   // Cleanup temporary files
   fs.rmSync(tempDir, { recursive: true });
