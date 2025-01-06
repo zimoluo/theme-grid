@@ -85,10 +85,10 @@ const { optimize } = require("svgo");
     gridSize * borderCellSize + (gridSize - 1) * cellGap + 2 * padding;
 
   // Start creating the output SVG
-  let svgContent = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${canvasSize}" height="${canvasSize}" viewBox="0 0 ${canvasSize} ${canvasSize}">`;
+  let svgContent = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${canvasSize} ${canvasSize}">`;
 
   // Add background color
-  svgContent += `<rect width="100%" height="100%" fill="rgba(240, 240, 240, 1)" />`;
+  svgContent += `<defs><clipPath id="grid-clip"><rect width="${canvasSize}" height="${canvasSize}" fill="#fff" /></clipPath></defs><g clip-path="url(#grid-clip)"><rect width="${canvasSize}" height="${canvasSize}" fill="rgba(240, 240, 240, 1)" />`;
 
   // Place each SVG on the grid
   for (let i = 0; i < svgDataList.length; i++) {
@@ -142,7 +142,7 @@ const { optimize } = require("svgo");
   }
 
   // Close the SVG
-  svgContent += `</svg>`;
+  svgContent += `</g></svg>`;
 
   // Optimize SVG with SVGO
   const optimizedSvg = optimize(svgContent, {
