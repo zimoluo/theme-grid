@@ -1,5 +1,4 @@
 const puppeteer = require("puppeteer");
-const sharp = require("sharp");
 const fs = require("fs");
 const path = require("path");
 
@@ -9,9 +8,8 @@ const path = require("path");
   const borderCellSize = 580; // Size for the larger background circles
   const cellGap = 256; // Default gap size
   const padding = cellGap; // Padding equal to gap size
-  const backgroundColor = { r: 240, g: 240, b: 240, alpha: 1 }; // Customizable background color
   const borderColor = { r: 180, g: 180, b: 180, alpha: 0.8 }; // Border color for the larger circle
-  const outputFileName = "output_grid_with_border.png";
+  const outputFileName = "output_grid_with_border.svg";
 
   // Launch Puppeteer
   const browser = await puppeteer.launch();
@@ -41,114 +39,113 @@ const path = require("path");
     return;
   }
 
-  // Directory to store downloaded SVGs and processed PNGs
+  // Directory to store downloaded SVGs
   const tempDir = path.join(__dirname, "temp");
   if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
 
-  // Download and process each SVG
-  const pngPaths = [];
+  // Download and process SVGs
+  const svgDataList = [];
   for (let i = 0; i < imageUrls.length; i++) {
     const url = imageUrls[i];
-    const svgPath = path.join(tempDir, `image_${i}.svg`);
-    const pngPath = path.join(tempDir, `image_${i}.png`);
-    const borderPngPath = path.join(tempDir, `border_image_${i}.png`);
 
-    // Fetch and save the SVG
+    // Fetch SVG content
     const response = await fetch(url);
     const svgContent = await response.text();
-    fs.writeFileSync(svgPath, svgContent);
 
-    // Use Sharp to convert SVG to PNG with a circular crop (regular icons)
-    await sharp(svgPath)
-      .resize(cellSize, cellSize)
-      .composite([
-        {
-          input: Buffer.from(
-            `<svg><circle cx="${cellSize / 2}" cy="${cellSize / 2}" r="${
-              cellSize / 2
-            }" fill="white"/></svg>`
-          ),
-          blend: "dest-in",
-        },
-      ])
-      .toFile(pngPath);
+    // Parse viewBox and other properties
+    const viewBoxMatch = svgContent.match(/viewBox="([^"]+)"/);
+    const viewBox = viewBoxMatch
+      ? viewBoxMatch[1].split(" ").map(Number)
+      : [0, 0, cellSize, cellSize];
+    const uniquePrefix = `img${i}-`;
 
-    // Create larger circular borders (border icons)
-    await sharp({
-      create: {
-        width: borderCellSize,
-        height: borderCellSize,
-        channels: 4,
-        background: { r: 0, g: 0, b: 0, alpha: 0 },
-      },
-    })
-      .composite([
-        {
-          input: Buffer.from(
-            `<svg><circle cx="${borderCellSize / 2}" cy="${
-              borderCellSize / 2
-            }" r="${borderCellSize / 2}" fill="rgba(${borderColor.r}, ${
-              borderColor.g
-            }, ${borderColor.b}, ${borderColor.alpha})"/></svg>`
-          ),
-          blend: "over",
-        },
-        {
-          input: pngPath,
-          top: Math.floor((borderCellSize - cellSize) / 2),
-          left: Math.floor((borderCellSize - cellSize) / 2),
-        },
-      ])
-      .toFile(borderPngPath);
+    // Add a unique prefix to IDs and update references
+    const updatedSvgContent = svgContent
+      .replace(/\bid="([^"]+)"/g, (match, id) => `id="${uniquePrefix}${id}"`)
+      .replace(
+        /\burl\(#([^"]+)\)/g,
+        (match, id) => `url(#${uniquePrefix}${id})`
+      )
+      .replace(
+        /\bxlink:href="#([^"]+)"/g,
+        (match, id) => `xlink:href="#${uniquePrefix}${id}"`
+      );
 
-    pngPaths.push({ regular: pngPath, border: borderPngPath });
+    svgDataList.push({ content: updatedSvgContent, viewBox, uniquePrefix });
   }
 
   // Calculate grid dimensions
-  const gridSize = Math.ceil(Math.sqrt(pngPaths.length));
-  const outputSize =
+  const gridSize = Math.ceil(Math.sqrt(svgDataList.length));
+  const canvasSize =
     gridSize * borderCellSize + (gridSize - 1) * cellGap + 2 * padding;
 
-  // Create the grid canvas for the final output
-  const gridCanvas = sharp({
-    create: {
-      width: outputSize,
-      height: outputSize,
-      channels: 4,
-      background: backgroundColor,
-    },
-  });
+  // Start creating the output SVG
+  let svgContent = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${canvasSize}" height="${canvasSize}" viewBox="0 0 ${canvasSize} ${canvasSize}">`;
 
-  // Composite the PNGs into the grid (layering border and regular icons)
-  const composites = [];
-  pngPaths.forEach(({ regular, border }, index) => {
-    const row = Math.floor(index / gridSize);
-    const col = index % gridSize;
+  // Add background color
+  svgContent += `<rect width="100%" height="100%" fill="rgba(240, 240, 240, 1)" />`;
+
+  // Place each SVG on the grid
+  for (let i = 0; i < svgDataList.length; i++) {
+    const { content, viewBox, uniquePrefix } = svgDataList[i];
+    const [vbX, vbY, vbWidth, vbHeight] = viewBox;
+
+    const row = Math.floor(i / gridSize);
+    const col = i % gridSize;
 
     const x = padding + col * (borderCellSize + cellGap);
     const y = padding + row * (borderCellSize + cellGap);
 
-    // Add the border icon first
-    composites.push({ input: border, left: x, top: y });
+    // Calculate scaling
+    const scaleX = cellSize / vbWidth;
+    const scaleY = cellSize / vbHeight;
+    const scale = Math.min(scaleX, scaleY);
+    const inverseScale = 1 / scale;
 
-    // Overlay the regular icon on top
-    composites.push({
-      input: regular,
-      left: x + Math.floor((borderCellSize - cellSize) / 2),
-      top: y + Math.floor((borderCellSize - cellSize) / 2),
-    });
-  });
+    const translateX = -vbX * scale + (cellSize - vbWidth * scale) / 2;
+    const translateY = -vbY * scale + (cellSize - vbHeight * scale) / 2;
 
-  // Save the final grid image
-  await gridCanvas.composite(composites).toFile(outputFileName);
+    // Define the clip path for this SVG
+    svgContent += `
+      <defs>
+        <clipPath id="${uniquePrefix}clip">
+          <circle cx="${cellSize / 2}" cy="${cellSize / 2}" r="${
+      cellSize / 2
+    }" transform="scale(${inverseScale})" />
+        </clipPath>
+      </defs>`;
 
-  console.log(`Grid image with borders saved as ${outputFileName}`);
+    // Add the larger circular background
+    svgContent += `<circle cx="${x + borderCellSize / 2}" cy="${
+      y + borderCellSize / 2
+    }" r="${borderCellSize / 2}" fill="rgba(${borderColor.r}, ${
+      borderColor.g
+    }, ${borderColor.b}, ${borderColor.alpha})" />`;
+
+    // Embed the SVG content with clipping applied
+    svgContent += `<g transform="translate(${
+      x + (borderCellSize - cellSize) / 2
+    }, ${
+      y + (borderCellSize - cellSize) / 2
+    }) scale(${scale}) translate(${translateX}, ${translateY})" clip-path="url(#${uniquePrefix}clip)">
+      ${content
+        .replace(/<\?xml[^>]*>/, "") // Remove XML declaration
+        .replace(/<!DOCTYPE[^>]*>/, "") // Remove DOCTYPE
+        .replace(/<svg[^>]*>/, "") // Remove opening SVG tag
+        .replace(/<\/svg>/, "")}
+    </g>`;
+  }
+
+  // Close the SVG
+  svgContent += `</svg>`;
+
+  // Save the output SVG
+  fs.writeFileSync(outputFileName, svgContent);
+
+  console.log(
+    `Grid SVG with corrected circular masking saved as ${outputFileName}`
+  );
 
   // Cleanup temporary files
-  pngPaths.forEach(({ regular, border }) => {
-    fs.unlinkSync(regular);
-    fs.unlinkSync(regular.replace(/\.png$/, ".svg"));
-    fs.unlinkSync(border);
-  });
-  fs.rmdirSync(tempDir);
+  fs.rmSync(tempDir, { recursive: true });
 })();
