@@ -1,4 +1,5 @@
 const puppeteer = require("puppeteer");
+const sharp = require("sharp");
 const fs = require("fs");
 const path = require("path");
 const { optimize } = require("svgo");
@@ -158,19 +159,8 @@ const { optimize } = require("svgo");
     fs.writeFileSync(outputFileName, optimizedSvg);
     console.log(`Optimized SVG saved as ${outputFileName}`);
   } else {
-    // Render the SVG as PNG
-    const tempSvgPath = path.join(tempDir, "temp.svg");
-    fs.writeFileSync(tempSvgPath, optimizedSvg);
-
-    const page = await browser.newPage();
-    await page.setContent(
-      `<html><body><img src="file://${tempSvgPath}" /></body></html>`
-    );
-    await page.screenshot({
-      path: outputFileName,
-      type: "png",
-      fullPage: true,
-    });
+    // Use Sharp to render the optimized SVG to PNG
+    await sharp(Buffer.from(optimizedSvg)).png().toFile(outputFileName);
 
     console.log(`Rendered PNG saved as ${outputFileName}`);
   }
